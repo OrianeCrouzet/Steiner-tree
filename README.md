@@ -1,4 +1,4 @@
-# Arbre de Steiner, avec et sans restriction
+# Arbre de Steiner dans un graphe, avec et sans restriction
 
 ### Choix d'implémentation
 Le projet sera codé en Java. 
