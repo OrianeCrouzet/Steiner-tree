@@ -10,6 +10,7 @@ import java.util.Map;
 import java.util.HashSet;
 import java.util.Comparator;
 import java.util.HashMap;
+import java.util.Collections;
 
 public class DefaultTeam {
 	final static int INF = 1000000000;
@@ -17,11 +18,10 @@ public class DefaultTeam {
 	public Tree2D calculSteiner(ArrayList<Point> points, int edgeThreshold, ArrayList<Point> hitPoints) {
         int n = points.size();
         int m = hitPoints.size();
+        int [][] predecessors = new int[n][n];
 
-        // Remplace Floyd-Warshall par Dijkstra pour plus d'efficacité
-        double[][] shortestPaths = computeAllPairShortestPaths(points, edgeThreshold);
+        double[][] shortestPaths = computeAllPairShortestPaths(points, edgeThreshold, predecessors);
 
-        // Construire le graphe réduit pour hitPoints
         double[][] K = new double[m][m];
         for (int i = 0; i < m; i++) {
             for (int j = 0; j < m; j++) {
@@ -29,10 +29,8 @@ public class DefaultTeam {
             }
         }
 
-        // Construire un MST sur ce graphe
         List<int[]> mstEdges = kruskalMST(K);
 
-        // Expansion du MST en un arbre plus complet
         Set<Point> steinerPoints = new HashSet<>(hitPoints);
         Map<Point, List<Point>> adjacencyList = new HashMap<>();
 
@@ -40,13 +38,11 @@ public class DefaultTeam {
             adjacencyList.put(p, new ArrayList<>());
         }
 
-        // Remplacement des arêtes MST par les plus courts chemins
         for (int[] edge : mstEdges) {
             Point u = hitPoints.get(edge[0]);
             Point v = hitPoints.get(edge[1]);
-            List<Point> chemin = reconstructShortestPath(points, shortestPaths, u, v);
+            List<Point> chemin = reconstructShortestPath(points, predecessors, u, v);
 
-            // Ajouter le chemin à l'arbre
             for (int i = 0; i < chemin.size() - 1; i++) {
                 Point a = chemin.get(i);
                 Point b = chemin.get(i + 1);
@@ -57,24 +53,26 @@ public class DefaultTeam {
             }
         }
 
-        // Construire et retourner un Tree2D valide
         return buildTree(hitPoints.get(0), adjacencyList, new HashSet<>());
     }
 
-    private double[][] computeAllPairShortestPaths(ArrayList<Point> points, int edgeThreshold) {
-        int n = points.size();
-        double[][] dist = new double[n][n];
+	private double[][] computeAllPairShortestPaths(ArrayList<Point> points, int edgeThreshold, int[][] predecessors) {
+	    int n = points.size();
+	    double[][] dist = new double[n][n];
 
-        for (int i = 0; i < n; i++) {
-            dist[i] = dijkstra(points, i, edgeThreshold);
-        }
-        return dist;
-    }
+	    for (int i = 0; i < n; i++) {
+	        int[] predecessor = new int[n];
+	        dist[i] = dijkstra(points, i, edgeThreshold, predecessor);
+	        predecessors[i] = predecessor;
+	    }
+	    return dist;
+	}
 
-    private double[] dijkstra(ArrayList<Point> points, int src, int edgeThreshold) {
+    private double[] dijkstra(ArrayList<Point> points, int src, int edgeThreshold, int[] predecessor) {
         int n = points.size();
         double[] dist = new double[n];
         Arrays.fill(dist, INF);
+        Arrays.fill(predecessor, -1); // -1 = "no predecessor"
         dist[src] = 0;
 
         PriorityQueue<int[]> pq = new PriorityQueue<>(Comparator.comparingDouble(a -> a[1]));
@@ -92,6 +90,7 @@ public class DefaultTeam {
                     double weight = points.get(u).distance(points.get(v));
                     if (dist[u] + weight < dist[v]) {
                         dist[v] = dist[u] + weight;
+                        predecessor[v] = u; 
                         pq.offer(new int[]{v, (int) dist[v]});
                     }
                 }
@@ -133,11 +132,21 @@ public class DefaultTeam {
         parent[find(parent, x)] = find(parent, y);
     }
 
-    private List<Point> reconstructShortestPath(ArrayList<Point> points, double[][] shortestPaths, Point u, Point v) {
-        List<Point> chemin = new ArrayList<>();
-        chemin.add(u);
-        chemin.add(v);
-        return chemin;
+    private List<Point> reconstructShortestPath(ArrayList<Point> points, int[][] predecessors, Point u, Point v) {
+        List<Point> path = new ArrayList<>();
+        int start = points.indexOf(u);
+        int end = points.indexOf(v); 
+
+        if (predecessors[start][end] == -1) return path;
+
+        while (end != start) {
+            path.add(points.get(end));
+            end = predecessors[start][end];
+        }
+        path.add(points.get(start));
+
+        Collections.reverse(path);
+        return path;
     }
 
     private Tree2D buildTree(Point root, Map<Point, List<Point>> adjacencyList, Set<Point> visited) {
