@@ -199,121 +199,80 @@ public class DefaultTeam {
      * 
      */
     public Tree2D calculSteinerBudget(ArrayList<Point> points, int edgeThreshold, ArrayList<Point> hitPoints) {
-        System.out.println("Debut budget");
-        System.out.println("Nombre total de points : " + points.size());
-        System.out.println("Nombre de hitPoints : " + hitPoints.size());
-
-    	int n = points.size();
-        Map<Point, Integer> indexMap = new HashMap<>();
-        for (int i = 0; i < n; i++) indexMap.put(points.get(i), i);
-
-        double[][] distances = new double[n][n];
-        for (int i = 0; i < n; i++) {
-            for (int j = 0; j < n; j++) {
-                if (i == j) distances[i][j] = 0;
-                else {
-                    double d = points.get(i).distance(points.get(j));
-                    distances[i][j] = (d <= edgeThreshold) ? d : INF;
-                }
-            }
-        }
-        
+        int n = points.size();
         int m = hitPoints.size();
-        double[][] shortestPaths = new double[m][m];
-        int[][] predecessors = new int[m][m];
-        for (int i = 0; i < m; i++) {
-        	System.out.println("i : " + i);
-        	Point hit = hitPoints.get(i);
-            int src = points.indexOf(hit);
-            System.out.println("Src : " + src);
-            shortestPaths[i] = dijkstraWithEdges(points, src, edgeThreshold, predecessors[i]);
-        }
-        System.out.println("Sortie de boucle pour dijkstra");
+        int[][] predecessors = new int[n][n];
 
-        return constructBudgetSteinerTree(hitPoints, shortestPaths, predecessors, edgeThreshold);
+        double[][] shortestPaths = computeAllPairShortestPaths(points, edgeThreshold, predecessors);
+
+        return constructBudgetSteinerTree(points, hitPoints, shortestPaths, predecessors, B);
     }
-    
+
     /*
      * 
      */
-    private double[] dijkstraWithEdges(ArrayList<Point> points, int src, int edgeThreshold, int[] predecessor) {
-    	System.out.println("_______________");
-    	System.out.println("Debut dijkstra");
-    	int n = points.size();
-        double[] dist = new double[n];
-        Arrays.fill(dist, Double.POSITIVE_INFINITY);
-        dist[src] = 0;
-        predecessor[src] = -1; // -1 = "no predecessor"
+    private Tree2D constructBudgetSteinerTree(ArrayList<Point> points, ArrayList<Point> hitPoints, double[][] shortestPaths, int[][] predecessors, int budget) {
+        int m = hitPoints.size();
+        Set<Integer> connected = new HashSet<>(); 
+        Map<Point, List<Point>> adjacencyList = new HashMap<>();
 
-        PriorityQueue<Edge> pq = new PriorityQueue<>(Comparator.comparingDouble(e -> e.weight));
-        pq.add(new Edge(src, src, 0));
-
-        while (!pq.isEmpty()) {
-            Edge e = pq.poll();
-            int u = e.v;
-            if (e.weight > dist[u]) continue;
-
-            for (int v = 0; v < n; v++) {
-                if (u != v && points.get(u).distance(points.get(v)) <= edgeThreshold) {
-                    double newDist = dist[u] + points.get(u).distance(points.get(v));
-                    if (newDist < dist[v]) {
-                        dist[v] = newDist;
-                        predecessor[v] = u;
-                        pq.add(new Edge(u, v, newDist));
-                    }
-                }
-            }
-        }
-        System.out.println("Fin dijkstra");
-        return dist;
-    }
-    
-    /*
-     * 
-     */
-    private Tree2D constructBudgetSteinerTree(ArrayList<Point> hitPoints, double[][] shortestPaths, int[][] predecessors, int budget) {
-    	System.out.println("Debut build tree");
-    	Set<Integer> connected = new HashSet<>();
-        PriorityQueue<Edge> pq = new PriorityQueue<>(Comparator.comparingDouble(e -> e.weight));
-
-        int first = 0;
-        connected.add(first);
-
-        for (int v = 1; v < hitPoints.size(); v++) {
-            pq.add(new Edge(first, v, shortestPaths[first][v]));
+        for (Point p : points) {
+            adjacencyList.put(p, new ArrayList<>());
         }
 
-        Tree2D steinerTree = new Tree2D(hitPoints.get(first), new ArrayList<>());
+        int maisonMereIndex = 0; 
+        connected.add(maisonMereIndex);
+
+        PriorityQueue<Edge> pq = new PriorityQueue<>(Comparator.comparingDouble(e -> e.weight / countNewPoints(e, connected)));
+
+        for (int i = 1; i < m; i++) {
+            double weight = shortestPaths[points.indexOf(hitPoints.get(maisonMereIndex))][points.indexOf(hitPoints.get(i))];
+            pq.add(new Edge(maisonMereIndex, i, weight));
+        }
+
         double totalCost = 0;
 
-        while (!pq.isEmpty() && connected.size() < hitPoints.size()) {
+        while (!pq.isEmpty() && totalCost < budget) {
             Edge e = pq.poll();
-            if (totalCost + e.weight > budget) continue;
+
+            if (totalCost + e.weight > budget) {
+                continue;
+            }
+
+            if (connected.contains(e.v)) {
+                continue;
+            }
 
             connected.add(e.v);
             totalCost += e.weight;
 
-            System.out.println("Début reconstruct path");
-            List<Point> path = reconstructShortestPath(hitPoints, predecessors, hitPoints.get(e.u), hitPoints.get(e.v));
-            System.out.println("Fin reconstruct path");
-            Tree2D subtree = new Tree2D(path.get(0), new ArrayList<>());
-            Tree2D current = subtree;
-            for (int i = 1; i < path.size(); i++) {
-                Tree2D next = new Tree2D(path.get(i), new ArrayList<>());
-                current.getSubTrees().add(next);
-                current = next;
-            }
-            steinerTree.getSubTrees().add(subtree);
+            Point u = hitPoints.get(e.u);
+            Point v = hitPoints.get(e.v);
+            List<Point> path = reconstructShortestPath(points, predecessors, u, v);
 
-            for (int v = 0; v < hitPoints.size(); v++) {
-                if (!connected.contains(v)) {
-                    pq.add(new Edge(e.v, v, shortestPaths[e.v][v]));
+            for (int i = 0; i < path.size() - 1; i++) {
+                Point a = path.get(i);
+                Point b = path.get(i + 1);
+                adjacencyList.get(a).add(b);
+                adjacencyList.get(b).add(a);
+            }
+
+            for (int i = 0; i < m; i++) {
+                if (!connected.contains(i)) {
+                    double weight = shortestPaths[points.indexOf(v)][points.indexOf(hitPoints.get(i))];
+                    pq.add(new Edge(e.v, i, weight));
                 }
             }
         }
 
-        System.out.println("Fin build tree");
-        return steinerTree;
+        return buildSteinerTree(hitPoints.get(maisonMereIndex), adjacencyList, new HashSet<>());
+    }
+
+    /* Méthode pour compter le nombre de nouveaux points connectés par une arête
+     * 
+     */
+    private int countNewPoints(Edge e, Set<Integer> connected) {
+        return connected.contains(e.v) ? 0 : 1;
     }
 
 }
